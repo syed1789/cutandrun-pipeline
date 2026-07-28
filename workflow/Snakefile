@@ -1,0 +1,90 @@
+"""
+CUT&Tag peak calling: bowtie2 (local, paired-end, CUT&Tag-standard settings)
+-> MACS3 peak calling (H3K4me3 vs. matched IgG control), per replicate.
+See README for why this is CUT&Tag data specifically, and how the pipeline
+is identical to a CUT&RUN peak-calling workflow.
+"""
+import os
+
+REPS = ["rep1", "rep2"]
+BOWTIE2_IMAGE = "quay.io/biocontainers/bowtie2:2.5.5--ha27dd3b_0"
+MACS3_IMAGE = "quay.io/biocontainers/macs3:3.0.4--py313hda738de_0"
+WORKDIR = os.getcwd()
+
+
+rule all:
+    input:
+        expand("results/macs2/h3k4me3_{rep}_peaks.narrowPeak", rep=REPS),
+        "results/tss_enrichment.tsv",
+
+
+rule bowtie2_index:
+    input:
+        "data/reference/hg38-chr20.fa",
+    output:
+        multiext(
+            "data/reference/chr20_index",
+            ".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2",
+        ),
+    shell:
+        """
+        docker run --rm -v {WORKDIR}:/data {BOWTIE2_IMAGE} \
+          bowtie2-build --threads 4 /data/{input} /data/data/reference/chr20_index
+        """
+
+
+rule bowtie2_align:
+    input:
+        index=rules.bowtie2_index.output,
+        r1="data/fastq/{sample}_r1.fastq.gz",
+        r2="data/fastq/{sample}_r2.fastq.gz",
+    output:
+        sam=temp("results/bowtie2/{sample}.sam"),
+    shell:
+        """
+        docker run --rm -v {WORKDIR}:/data {BOWTIE2_IMAGE} \
+          bowtie2 --local --very-sensitive-local --no-mixed --no-discordant \
+            --phred33 -I 10 -X 700 -p 4 \
+            -x /data/data/reference/chr20_index \
+            -1 /data/{input.r1} -2 /data/{input.r2} \
+            -S /data/{output.sam}
+        """
+
+
+rule sort_index_bam:
+    input:
+        "results/bowtie2/{sample}.sam",
+    output:
+        bam="results/bowtie2/{sample}.sorted.bam",
+        bai="results/bowtie2/{sample}.sorted.bam.bai",
+    shell:
+        """
+        samtools sort -@ 4 -o {output.bam} {input}
+        samtools index {output.bam}
+        """
+
+
+rule macs3_callpeak:
+    input:
+        treatment="results/bowtie2/h3k4me3_{rep}.sorted.bam",
+        control="results/bowtie2/igg_{rep}.sorted.bam",
+    output:
+        "results/macs2/h3k4me3_{rep}_peaks.narrowPeak",
+    shell:
+        """
+        docker run --rm -v {WORKDIR}:/data {MACS3_IMAGE} \
+          macs3 callpeak \
+            -t /data/{input.treatment} -c /data/{input.control} \
+            -f BAMPE -g 6.4e7 -n h3k4me3_{wildcards.rep} \
+            --outdir /data/results/macs2 -q 0.1
+        """
+
+
+rule tss_enrichment:
+    input:
+        peaks=expand("results/macs2/h3k4me3_{rep}_peaks.narrowPeak", rep=REPS),
+        genes="data/reference/hg38-chr20-genes.bed",
+    output:
+        "results/tss_enrichment.tsv",
+    script:
+        "../scripts/tss_enrichment.py"

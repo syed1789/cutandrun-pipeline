@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.snakemake/
+data/fastq/*.fastq.gz
+data/reference/hg38-chr20.fa
+data/reference/hg38-chr20-genes.bed
+data/reference/hg38-blacklist.bed
+data/reference/chr20_index.*.bt2
+results/bowtie2/*.sorted.bam
+results/bowtie2/*.sorted.bam.bai
