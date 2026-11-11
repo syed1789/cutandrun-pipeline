@@ -10,3 +10,5 @@ data/reference/hg38-blacklist.bed
 data/reference/chr20_index.*.bt2
 results/bowtie2/*.sorted.bam
 results/bowtie2/*.sorted.bam.bai
+*.sif
+logs/
